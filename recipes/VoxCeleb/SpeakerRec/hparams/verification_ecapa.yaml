@@ -40,9 +40,9 @@ n_train_snts: 400000 # used for normalization stats
 
 # Feature parameters
 n_mels: 80
-left_frames: 0
-right_frames: 0
-deltas: False
+# left_frames: 0
+# right_frames: 0
+# deltas: False
 
 # Dataloader options
 train_dataloader_opts:
@@ -66,6 +66,7 @@ embedding_model: !new:speechbrain.lobes.models.ECAPA_TDNN.ECAPA_TDNN
     channels: [1024, 1024, 1024, 1024, 3072]
     kernel_sizes: [5, 3, 3, 3, 1]
     dilations: [1, 2, 3, 4, 1]
+    groups: [1, 1, 1, 1, 1]
     attention_channels: 128
     lin_neurons: 192
 

@@ -4,6 +4,8 @@ Authors
  * Mirco Ravanelli 2020
  * Jianyuan Zhong 2020
  * Cem Subakan 2021
+ * Davide Borra 2021
+ * Andreas Nautsch 2022
 """
 
 import math
@@ -82,6 +84,7 @@ class SincConv(nn.Module):
         min_band_hz=50,
     ):
         super().__init__()
+        self.in_channels = in_channels
         self.out_channels = out_channels
         self.kernel_size = kernel_size
         self.stride = stride
@@ -93,11 +96,16 @@ class SincConv(nn.Module):
         self.min_band_hz = min_band_hz
 
         # input shape inference
-        if input_shape is None and in_channels is None:
+        if input_shape is None and self.in_channels is None:
             raise ValueError("Must provide one of input_shape or in_channels")
 
-        if in_channels is None:
-            in_channels = self._check_input_shape(input_shape)
+        if self.in_channels is None:
+            self.in_channels = self._check_input_shape(input_shape)
+
+        if self.out_channels % self.in_channels != 0:
+            raise ValueError(
+                "Number of output channels must be divisible by in_channels"
+            )
 
         # Initialize Sinc filters
         self._init_sinc_conv()
@@ -144,6 +152,7 @@ class SincConv(nn.Module):
             stride=self.stride,
             padding=0,
             dilation=self.dilation,
+            groups=self.in_channels,
         )
 
         if unsqueeze:
@@ -160,7 +169,7 @@ class SincConv(nn.Module):
         if len(shape) == 2:
             in_channels = 1
         elif len(shape) == 3:
-            in_channels = 1
+            in_channels = shape[-1]
         else:
             raise ValueError(
                 "sincconv expects 2d or 3d inputs. Got " + str(len(shape))
@@ -284,7 +293,7 @@ class SincConv(nn.Module):
         """
 
         # Detecting input shape
-        L_in = x.shape[-1]
+        L_in = self.in_channels
 
         # Time padding
         padding = get_padding_elem(L_in, stride, kernel_size, dilation)
@@ -317,12 +326,17 @@ class Conv1d(nn.Module):
         (same, valid, causal). If "valid", no padding is performed.
         If "same" and stride is 1, output shape is the same as the input shape.
         "causal" results in causal (dilated) convolutions.
+    groups: int
+        Number of blocked connections from input channels to output channels.
     padding_mode : str
         This flag specifies the type of padding. See torch.nn documentation
         for more information.
     skip_transpose : bool
         If False, uses batch x time x channel convention of speechbrain.
         If True, uses batch x channel x time convention.
+    weight_norm : bool
+        If True, use weight normalization,
+        to be removed with self.remove_weight_norm() at inference
 
     Example
     -------
@@ -348,6 +362,7 @@ class Conv1d(nn.Module):
         bias=True,
         padding_mode="reflect",
         skip_transpose=False,
+        weight_norm=False,
     ):
         super().__init__()
         self.kernel_size = kernel_size
@@ -364,6 +379,8 @@ class Conv1d(nn.Module):
         if in_channels is None:
             in_channels = self._check_input_shape(input_shape)
 
+        self.in_channels = in_channels
+
         self.conv = nn.Conv1d(
             in_channels,
             out_channels,
@@ -374,6 +391,9 @@ class Conv1d(nn.Module):
             groups=groups,
             bias=bias,
         )
+
+        if weight_norm:
+            self.conv = nn.utils.weight_norm(self.conv)
 
     def forward(self, x):
         """Returns the output of the convolution.
@@ -437,7 +457,7 @@ class Conv1d(nn.Module):
         """
 
         # Detecting input shape
-        L_in = x.shape[-1]
+        L_in = self.in_channels
 
         # Time padding
         padding = get_padding_elem(L_in, stride, kernel_size, dilation)
@@ -471,9 +491,14 @@ class Conv1d(nn.Module):
             )
         return in_channels
 
+    def remove_weight_norm(self):
+        """Removes weight normalization at inference if used during training.
+        """
+        self.conv = nn.utils.remove_weight_norm(self.conv)
+
 
 class Conv2d(nn.Module):
-    """This function implements 1d convolution.
+    """This function implements 2d convolution.
 
     Arguments
     ---------
@@ -503,6 +528,12 @@ class Conv2d(nn.Module):
         documentation for more information.
     bias : bool
         If True, the additive bias b is adopted.
+    skip_transpose : bool
+        If False, uses batch x time x channel convention of speechbrain.
+        If True, uses batch x channel x time convention.
+    weight_norm : bool
+        If True, use weight normalization,
+        to be removed with self.remove_weight_norm() at inference
 
     Example
     -------
@@ -527,6 +558,8 @@ class Conv2d(nn.Module):
         groups=1,
         bias=True,
         padding_mode="reflect",
+        skip_transpose=False,
+        weight_norm=False,
     ):
         super().__init__()
 
@@ -544,6 +577,7 @@ class Conv2d(nn.Module):
         self.padding = padding
         self.padding_mode = padding_mode
         self.unsqueeze = False
+        self.skip_transpose = skip_transpose
 
         if input_shape is None and in_channels is None:
             raise ValueError("Must provide one of input_shape or in_channels")
@@ -551,9 +585,11 @@ class Conv2d(nn.Module):
         if in_channels is None:
             in_channels = self._check_input(input_shape)
 
+        self.in_channels = in_channels
+
         # Weights are initialized following pytorch approach
         self.conv = nn.Conv2d(
-            in_channels,
+            self.in_channels,
             out_channels,
             self.kernel_size,
             stride=self.stride,
@@ -562,6 +598,9 @@ class Conv2d(nn.Module):
             groups=groups,
             bias=bias,
         )
+
+        if weight_norm:
+            self.conv = nn.utils.weight_norm(self.conv)
 
     def forward(self, x):
         """Returns the output of the convolution.
@@ -572,7 +611,8 @@ class Conv2d(nn.Module):
             input to convolve. 2d or 4d tensors are expected.
 
         """
-        x = x.transpose(1, -1)
+        if not self.skip_transpose:
+            x = x.transpose(1, -1)
 
         if self.unsqueeze:
             x = x.unsqueeze(1)
@@ -595,7 +635,8 @@ class Conv2d(nn.Module):
         if self.unsqueeze:
             wx = wx.squeeze(1)
 
-        wx = wx.transpose(1, -1)
+        if not self.skip_transpose:
+            wx = wx.transpose(1, -1)
 
         return wx
 
@@ -606,7 +647,7 @@ class Conv2d(nn.Module):
         dilation: Tuple[int, int],
         stride: Tuple[int, int],
     ):
-        """This function performs zero-padding on the time and frequency axises
+        """This function performs zero-padding on the time and frequency axes
         such that their lengths is unchanged after the convolution.
 
         Arguments
@@ -617,7 +658,7 @@ class Conv2d(nn.Module):
         stride: int
         """
         # Detecting input shape
-        L_in = x.shape[-1]
+        L_in = self.in_channels
 
         # Time padding
         padding_time = get_padding_elem(
@@ -656,6 +697,77 @@ class Conv2d(nn.Module):
             )
 
         return in_channels
+
+    def remove_weight_norm(self):
+        """Removes weight normalization at inference if used during training.
+        """
+        self.conv = nn.utils.remove_weight_norm(self.conv)
+
+
+class Conv2dWithConstraint(Conv2d):
+    """This function implements 2d convolution with kernel max-norm constaint.
+    This corresponds to set an upper bound for the kernel norm.
+
+    Arguments
+    ---------
+    out_channels : int
+        It is the number of output channels.
+    kernel_size : tuple
+        Kernel size of the 2d convolutional filters over time and frequency
+        axis.
+    input_shape : tuple
+        The shape of the input. Alternatively use ``in_channels``.
+    in_channels : int
+        The number of input channels. Alternatively use ``input_shape``.
+    stride: int
+        Stride factor of the 2d convolutional filters over time and frequency
+        axis.
+    dilation : int
+        Dilation factor of the 2d convolutional filters over time and
+        frequency axis.
+    padding : str
+        (same, valid). If "valid", no padding is performed.
+        If "same" and stride is 1, output shape is same as input shape.
+    padding_mode : str
+        This flag specifies the type of padding. See torch.nn documentation
+        for more information.
+    groups : int
+        This option specifies the convolutional groups. See torch.nn
+        documentation for more information.
+    bias : bool
+        If True, the additive bias b is adopted.
+    max_norm : float
+        kernel  max-norm
+
+    Example
+    -------
+    >>> inp_tensor = torch.rand([10, 40, 16, 8])
+    >>> max_norm = 1
+    >>> cnn_2d_constrained = Conv2dWithConstraint(
+    ...     in_channels=inp_tensor.shape[-1], out_channels=5, kernel_size=(7, 3)
+    ... )
+    >>> out_tensor = cnn_2d_constrained(inp_tensor)
+    >>> torch.any(torch.norm(cnn_2d_constrained.conv.weight.data, p=2, dim=0)>max_norm)
+    tensor(False)
+    """
+
+    def __init__(self, *args, max_norm=1, **kwargs):
+        self.max_norm = max_norm
+        super(Conv2dWithConstraint, self).__init__(*args, **kwargs)
+
+    def forward(self, x):
+        """Returns the output of the convolution.
+
+        Arguments
+        ---------
+        x : torch.Tensor (batch, time, channel)
+            input to convolve. 2d or 4d tensors are expected.
+
+        """
+        self.conv.weight.data = torch.renorm(
+            self.conv.weight.data, p=2, dim=0, maxnorm=self.max_norm
+        )
+        return super(Conv2dWithConstraint, self).forward(x)
 
 
 class ConvTranspose1d(nn.Module):
@@ -702,6 +814,9 @@ class ConvTranspose1d(nn.Module):
     skip_transpose : bool
         If False, uses batch x time x channel convention of speechbrain.
         If True, uses batch x channel x time convention.
+    weight_norm : bool
+        If True, use weight normalization,
+        to be removed with self.remove_weight_norm() at inference
 
     Example
     -------
@@ -764,6 +879,7 @@ class ConvTranspose1d(nn.Module):
         groups=1,
         bias=True,
         skip_transpose=False,
+        weight_norm=False,
     ):
         super().__init__()
         self.kernel_size = kernel_size
@@ -817,6 +933,9 @@ class ConvTranspose1d(nn.Module):
             bias=bias,
         )
 
+        if weight_norm:
+            self.conv = nn.utils.weight_norm(self.conv)
+
     def forward(self, x, output_size=None):
         """Returns the output of the convolution.
 
@@ -860,9 +979,14 @@ class ConvTranspose1d(nn.Module):
 
         return in_channels
 
+    def remove_weight_norm(self):
+        """Removes weight normalization at inference if used during training.
+        """
+        self.conv = nn.utils.remove_weight_norm(self.conv)
+
 
 class DepthwiseSeparableConv1d(nn.Module):
-    """This class implements the depthwise separable convolution.
+    """This class implements the depthwise separable 1d convolution.
 
     First, a channel-wise convolution is applied to the input
     Then, a point-wise convolution to project the input to output
@@ -942,7 +1066,7 @@ class DepthwiseSeparableConv1d(nn.Module):
 
 
 class DepthwiseSeparableConv2d(nn.Module):
-    """This class implements the depthwise separable convolution.
+    """This class implements the depthwise separable 2d convolution.
 
     First, a channel-wise convolution is applied to the input
     Then, a point-wise convolution to project the input to output
@@ -1047,14 +1171,16 @@ def get_padding_elem(L_in: int, stride: int, kernel_size: int, dilation: int):
     dilation : int
     """
     if stride > 1:
-        n_steps = math.ceil(((L_in - kernel_size * dilation) / stride) + 1)
-        L_out = stride * (n_steps - 1) + kernel_size * dilation
-        padding = [kernel_size // 2, kernel_size // 2]
+        padding = [math.floor(kernel_size / 2), math.floor(kernel_size / 2)]
 
     else:
-        L_out = (L_in - dilation * (kernel_size - 1) - 1) // stride + 1
-
-        padding = [(L_in - L_out) // 2, (L_in - L_out) // 2]
+        L_out = (
+            math.floor((L_in - dilation * (kernel_size - 1) - 1) / stride) + 1
+        )
+        padding = [
+            math.floor((L_in - L_out) / 2),
+            math.floor((L_in - L_out) / 2),
+        ]
     return padding
 
 

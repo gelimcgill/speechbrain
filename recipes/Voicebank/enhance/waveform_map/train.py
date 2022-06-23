@@ -83,7 +83,9 @@ class SEBrain(sb.Brain):
             )
 
         if stage != sb.Stage.TRAIN:
-            self.pesq_metric = MetricStats(metric=pesq_eval, n_jobs=30)
+            self.pesq_metric = MetricStats(
+                metric=pesq_eval, n_jobs=1, batch_eval=False
+            )
 
     def on_stage_end(self, stage, stage_loss, epoch=None):
         """Gets called at the end of an epoch."""
@@ -138,9 +140,14 @@ def dataio_prep(hparams):
 
     # Define datasets
     datasets = {}
-    for dataset in ["train", "valid", "test"]:
+    data_info = {
+        "train": hparams["train_annotation"],
+        "valid": hparams["valid_annotation"],
+        "test": hparams["test_annotation"],
+    }
+    for dataset in data_info:
         datasets[dataset] = sb.dataio.dataset.DynamicItemDataset.from_json(
-            json_path=hparams[f"{dataset}_annotation"],
+            json_path=data_info[dataset],
             replacements={"data_root": hparams["data_folder"]},
             dynamic_items=[noisy_pipeline, clean_pipeline],
             output_keys=["id", "noisy_sig", "clean_sig"],

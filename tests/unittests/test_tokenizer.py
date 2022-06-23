@@ -17,7 +17,7 @@ def test_tokenizer():
         os.path.abspath("tokenizer_data/"),
         100,
         annotation_train=os.path.abspath(
-            "tests/unittests/tokenizer_data/dev-clean.csv"
+            "tests/samples/annotation/tokenizer.csv"
         ),
         annotation_read="wrd",
         model_type="bpe",
@@ -28,7 +28,7 @@ def test_tokenizer():
         dict_int2lab,
         task="encode",
     )
-    lens = (encoded_seq_pieces * encoded_seq_ids.shape[1]).int()
+    lens = (encoded_seq_pieces * encoded_seq_ids.shape[1]).round().int()
     # decode from torch tensors (batch, batch_lens)
     words_seq = spm(encoded_seq_ids, encoded_seq_pieces, task="decode")
     assert words_seq == gt, "output not the same"
@@ -58,7 +58,7 @@ def test_tokenizer():
         os.path.abspath("tokenizer_data/"),
         100,
         annotation_train=os.path.abspath(
-            "tests/unittests/tokenizer_data/dev-clean.csv"
+            "tests/sample/annotation/tokenzer.csv"
         ),
         annotation_read="char",
         char_format_input=True,
@@ -131,7 +131,7 @@ def test_tokenizer():
         dict_int2lab,
         task="encode",
     )
-    lens = (encoded_seq_pieces * encoded_seq_ids.shape[1]).int()
+    lens = (encoded_seq_pieces * encoded_seq_ids.shape[1]).round().int()
     # decode from torch tensors (batch, batch_lens)
     words_seq = spm(encoded_seq_ids, encoded_seq_pieces, task="decode")
     assert words_seq == gt, "output not the same"

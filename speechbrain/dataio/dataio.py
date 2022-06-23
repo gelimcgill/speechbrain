@@ -20,10 +20,9 @@ import time
 import torchaudio
 import json
 import re
-from speechbrain.utils.torch_audio_backend import get_torchaudio_backend
+from speechbrain.utils.torch_audio_backend import check_torchaudio_backend
 
-torchaudio_backend = get_torchaudio_backend()
-torchaudio.set_audio_backend(torchaudio_backend)
+check_torchaudio_backend()
 logger = logging.getLogger(__name__)
 
 
@@ -752,7 +751,7 @@ def read_kaldi_lab(kaldi_ali, kaldi_lab_opts):
             + kaldi_lab_opts
             + " "
             + kaldi_ali
-            + "/final.mdl ark:- ark:-|",
+            + "/final.mdl ark:- ark:-|"
         )
     }
     return lab
@@ -773,7 +772,7 @@ def get_md5(file):
 
     Example
     -------
-    >>> get_md5('samples/audio_samples/example1.wav')
+    >>> get_md5('tests/samples/single-mic/example1.wav')
     'c482d0081ca35302d30d12f1136c34e5'
     """
     # Lets read stuff in 64kb chunks!
@@ -804,7 +803,7 @@ def save_md5(files, out_file):
     None
 
     Example:
-    >>> files = ['samples/audio_samples/example1.wav']
+    >>> files = ['tests/samples/single-mic/example1.wav']
     >>> tmpdir = getfixture('tmpdir')
     >>> save_md5(files, os.path.join(tmpdir, "md5.pkl"))
     """
@@ -984,8 +983,8 @@ def merge_csvs(data_folder, csv_lst, merged_csv):
 
     Example
     -------
-    >>> merge_csvs("samples/audio_samples/",
-    ... ["csv_example.csv", "csv_example2.csv"],
+    >>> merge_csvs("tests/samples/annotation/",
+    ... ["speech.csv", "speech.csv"],
     ... "test_csv_merge.csv")
     """
     write_path = os.path.join(data_folder, merged_csv)

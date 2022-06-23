@@ -105,7 +105,13 @@ class Pooling1d(nn.Module):
             raise ValueError("pool_type must be 'avg' or 'max'")
 
     def forward(self, x):
+        """Performs 1d pooling to the input tensor.
 
+        Arguments
+        ---------
+        x : torch.Tensor
+            It represents a tensor for a mini-batch.
+        """
         # Put the pooling axes as the last dimension for torch.nn.pool
         x = x.transpose(-1, self.pool_axis)
 
@@ -188,7 +194,13 @@ class Pooling2d(nn.Module):
             )
 
     def forward(self, x):
+        """Performs 2d pooling to the input tensor.
 
+        Arguments
+        ---------
+        x : torch.Tensor
+            It represents a tensor for a mini-batch.
+        """
         # Add extra two dimension at the last two, and then swap the pool_axis to them
         # Example: pool_axis=[1,2]
         # [a,b,c,d] => [a,b,c,d,1,1]
@@ -229,7 +241,14 @@ class Pooling2d(nn.Module):
 class StatisticsPooling(nn.Module):
     """This class implements a statistic pooling layer.
 
-    It returns the concatenated mean and std of input tensor.
+    It returns the mean and/or std of input tensor.
+
+    Arguments
+    ---------
+    return_mean : True
+         If True, the average pooling will be returned.
+    return_std : True
+         If True, the standard deviation will be returned.
 
     Example
     -------
@@ -240,11 +259,18 @@ class StatisticsPooling(nn.Module):
     torch.Size([5, 1, 100])
     """
 
-    def __init__(self):
+    def __init__(self, return_mean=True, return_std=True):
         super().__init__()
 
         # Small value for GaussNoise
         self.eps = 1e-5
+        self.return_mean = return_mean
+        self.return_std = return_std
+        if not (self.return_mean or self.return_std):
+            raise ValueError(
+                "both of statistics are equal to False \n"
+                "consider enabling mean and/or std statistic pooling"
+            )
 
     def forward(self, x, lengths=None):
         """Calculates mean and std for a batch (input tensor).
@@ -255,8 +281,10 @@ class StatisticsPooling(nn.Module):
             It represents a tensor for a mini-batch.
         """
         if lengths is None:
-            mean = x.mean(dim=1)
-            std = x.std(dim=1)
+            if self.return_mean:
+                mean = x.mean(dim=1)
+            if self.return_std:
+                std = x.std(dim=1)
         else:
             mean = []
             std = []
@@ -265,24 +293,32 @@ class StatisticsPooling(nn.Module):
                 actual_size = int(torch.round(lengths[snt_id] * x.shape[1]))
 
                 # computing statistics
-                mean.append(
-                    torch.mean(x[snt_id, 1 : actual_size - 1, ...], dim=0)
-                )
-                std.append(
-                    torch.std(x[snt_id, 1 : actual_size - 1, ...], dim=0)
-                )
+                if self.return_mean:
+                    mean.append(
+                        torch.mean(x[snt_id, 0:actual_size, ...], dim=0)
+                    )
+                if self.return_std:
+                    std.append(torch.std(x[snt_id, 0:actual_size, ...], dim=0))
+            if self.return_mean:
+                mean = torch.stack(mean)
+            if self.return_std:
+                std = torch.stack(std)
 
-            mean = torch.stack(mean)
-            std = torch.stack(std)
-
-        gnoise = self._get_gauss_noise(mean.size(), device=mean.device)
-        gnoise = gnoise
-        mean += gnoise
-        std = std + self.eps
+        if self.return_mean:
+            gnoise = self._get_gauss_noise(mean.size(), device=mean.device)
+            gnoise = gnoise
+            mean += gnoise
+        if self.return_std:
+            std = std + self.eps
 
         # Append mean and std of the batch
-        pooled_stats = torch.cat((mean, std), dim=1)
-        pooled_stats = pooled_stats.unsqueeze(1)
+        if self.return_mean and self.return_std:
+            pooled_stats = torch.cat((mean, std), dim=1)
+            pooled_stats = pooled_stats.unsqueeze(1)
+        elif self.return_mean:
+            pooled_stats = mean.unsqueeze(1)
+        elif self.return_std:
+            pooled_stats = std.unsqueeze(1)
 
         return pooled_stats
 
@@ -340,7 +376,13 @@ class AdaptivePool(nn.Module):
             self.pool = nn.AdaptiveAvgPool2d(output_size)
 
     def forward(self, x):
+        """Performs adpative pooling to the input tensor.
 
+        Arguments
+        ---------
+        x : torch.Tensor
+            It represents a tensor for a mini-batch.
+        """
         if x.ndim == 3:
             return self.pool(x.permute(0, 2, 1)).permute(0, 2, 1)
 
